@@ -307,7 +307,7 @@ def _interpolate_points(line, distance):
     return coords
 
 
-def extract_stream_starts_ends(streams, output_dir):
+def extract_stream_starts_ends(streams, output_dir, save_to_shapefile=True):
     """
     Extract the start and end points of the streams.
 
@@ -317,6 +317,8 @@ def extract_stream_starts_ends(streams, output_dir):
         The streams GeoDataFrame.
     output_dir: Path
         The output directory.
+    save_to_shapefile: bool
+        Whether to save the start and end points to shapefiles.
     """
     print('Finding stream starts/ends...')
 
@@ -361,7 +363,8 @@ def extract_stream_starts_ends(streams, output_dir):
     unconnected_end_gdf = gpd.GeoDataFrame(geometry=unconnected_end)
 
     # Save the new GeoDataFrame as a point layer shapefile
-    unconnected_start_gdf.to_file(str(stream_starts_shp))
-    unconnected_end_gdf.to_file(str(stream_ends_shp))
+    if save_to_shapefile:
+        unconnected_start_gdf.to_file(str(stream_starts_shp), crs=streams.crs)
+        unconnected_end_gdf.to_file(str(stream_ends_shp), crs=streams.crs)
 
     return unconnected_start_gdf, unconnected_end_gdf
