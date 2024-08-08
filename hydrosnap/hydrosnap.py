@@ -8,39 +8,49 @@ import geopandas as gpd
 import numpy as np
 from pathlib import Path
 
-# Paths
-DEM_PATH = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\Data\GIS\DEM\DEM_Broye_50m.tif'
-STREAMS_PATH = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\Data\GIS\River network\River_network_tlm3d.shp'
-OUTPUT_DIR = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\Data\Analyses\Data preprocessing'
-OUTLET_PATH = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\Data\GIS\Catchment\Outlet.shp'
-DELTA = 0.01  # Elevation difference to lower the next pixel when correcting
 
+def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=0.01):
+    """
+    Recondition the DEM based on the stream network.
 
-def main():
+    Parameters
+    ----------
+    dem_path: str
+        The path to the DEM raster file.
+    streams_path: str
+        The path to the streams shapefile.
+    output_dir: str
+        The output directory.
+    outlet_path: str
+        The path to the outlet shapefile.
+    delta: float
+        The elevation difference to lower the next pixel when correcting.
+    """
+
     # Check if the directory exists
-    if not os.path.exists(OUTPUT_DIR):
+    if not os.path.exists(output_dir):
         # If not, create it
-        os.makedirs(OUTPUT_DIR)
+        os.makedirs(output_dir)
 
     # Load the DEM
-    original_dem = rasterio.open(DEM_PATH)
+    original_dem = rasterio.open(dem_path)
 
     # Load the streams
-    streams = prepare_streams(STREAMS_PATH, original_dem)
+    streams = _prepare_streams(streams_path, output_dir)
 
     # Save the streams
-    streams.to_file(Path(OUTPUT_DIR) / 'streams.shp')
+    streams.to_file(Path(output_dir) / 'streams.shp')
 
     # Loop over every stream start and follow the stream to correct the DEM
-    new_dem = recondition_dem(original_dem, streams)
+    new_dem = _recondition_dem(original_dem, streams, delta)
 
     # Save the corrected DEM
-    output_dem_path = Path(OUTPUT_DIR) / 'corrected_dem_pre_pysheds.tif'
+    output_dem_path = Path(output_dir) / 'corrected_dem_pre_pysheds.tif'
     with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
         dst.write(new_dem, 1)
 
     # Save the height difference raster
-    output_diff_path = Path(OUTPUT_DIR) / 'height_diff.tif'
+    output_diff_path = Path(output_dir) / 'height_diff.tif'
     with rasterio.open(output_diff_path, 'w', **original_dem.profile) as dst:
         dst.write(new_dem - original_dem.read(1), 1)
 
@@ -52,7 +62,7 @@ def main():
     inflated_dem = pysheds_grid.resolve_flats(flooded_dem)
 
     # Save the final DEM
-    output_dem_path = Path(OUTPUT_DIR) / 'corrected_dem_final.tif'
+    output_dem_path = Path(output_dir) / 'corrected_dem_final.tif'
     with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
         dst.write(inflated_dem, 1)
 
@@ -60,9 +70,9 @@ def main():
     fdir = pysheds_grid.flowdir(inflated_dem)
     acc = pysheds_grid.accumulation(fdir)
 
-    if OUTLET_PATH:
+    if outlet_path:
         # Load the outlet
-        outlet = gpd.read_file(OUTLET_PATH)
+        outlet = gpd.read_file(outlet_path)
         (x, y) = (outlet.geometry.x[0], outlet.geometry.y[0])
 
         # Snap the outlet to the nearest cell with a high flow accumulation
@@ -72,17 +82,17 @@ def main():
         catchment = pysheds_grid.catchment(x=x_snap, y=y_snap, fdir=fdir)
 
         # Save the catchment
-        output_catchment_path = Path(OUTPUT_DIR) / 'catchment.tif'
+        output_catchment_path = Path(output_dir) / 'catchment.tif'
         with rasterio.open(output_catchment_path, 'w', **original_dem.profile) as dst:
             dst.write(catchment, 1)
 
     # Save the flow direction
-    output_fdir_path = Path(OUTPUT_DIR) / 'flow_direction.tif'
+    output_fdir_path = Path(output_dir) / 'flow_direction.tif'
     with rasterio.open(output_fdir_path, 'w', **original_dem.profile) as dst:
         dst.write(fdir, 1)
 
     # Save the flow accumulation
-    output_acc_path = Path(OUTPUT_DIR) / 'flow_accumulation.tif'
+    output_acc_path = Path(output_dir) / 'flow_accumulation.tif'
     with rasterio.open(output_acc_path, 'w', **original_dem.profile) as dst:
         dst.write(acc, 1)
 
@@ -91,14 +101,24 @@ def main():
     print(f'Corrected DEM saved to {output_dem_path}')
 
 
-def prepare_streams(streams_path, original_dem):
+def _prepare_streams(streams_path, output_dir):
+    """
+    Prepare the streams by adding a rank to each stream.
+
+    Parameters
+    ----------
+    streams_path: str
+        The path to the streams shapefile.
+    output_dir: str
+        The output directory.
+    """
     print('Preparing streams...')
 
     streams = gpd.read_file(streams_path)
 
-    _, stream_ends = extract_stream_starts_ends(streams)
+    _, stream_ends = extract_stream_starts_ends(streams, output_dir)
 
-    # From teh stream ends, go up the stream and increment a rank counter
+    # From the stream ends, go up the stream and increment a rank counter
     streams['rank'] = 0
     for idx, row in stream_ends.iterrows():
         rank = 1
@@ -108,7 +128,7 @@ def prepare_streams(streams_path, original_dem):
                        start_point.touches(streams.geometry[i])]
         streams_connected = streams.loc[streams_idx]
 
-        iterate_stream_rank(streams, streams_connected, rank)
+        _iterate_stream_rank(streams, streams_connected, rank)
 
     # Sort the streams by rank
     streams = streams.sort_values(by='rank', ascending=False)
@@ -116,7 +136,19 @@ def prepare_streams(streams_path, original_dem):
     return streams
 
 
-def iterate_stream_rank(streams, streams_touching, rank):
+def _iterate_stream_rank(streams, streams_touching, rank):
+    """
+    Iterate over the streams to set the rank of each stream.
+
+    Parameters
+    ----------
+    streams: GeoDataFrame
+        The streams GeoDataFrame.
+    streams_touching: GeoDataFrame
+        The streams that are touching the current stream.
+    rank: int
+        The rank of the current stream.
+    """
     # Set the rank of the current streams
     streams.loc[streams_touching.index, 'rank'] = rank
     rank += 1
@@ -134,10 +166,22 @@ def iterate_stream_rank(streams, streams_touching, rank):
         streams_connected = streams_connected[streams_connected['rank'] == 0]
 
         if len(streams_connected) > 0:
-            iterate_stream_rank(streams, streams_connected, rank)
+            _iterate_stream_rank(streams, streams_connected, rank)
 
 
-def recondition_dem(original_dem, streams):
+def _recondition_dem(original_dem, streams, delta):
+    """
+    Correct the DEM based on the stream network.
+
+    Parameters
+    ----------
+    original_dem: rasterio.DatasetReader
+        The original DEM raster.
+    streams: GeoDataFrame
+        The streams GeoDataFrame.
+    delta: float
+        The elevation difference to lower the next pixel when correcting.
+    """
     print('Correcting DEM...')
 
     # Compute the distances between cells
@@ -153,8 +197,8 @@ def recondition_dem(original_dem, streams):
     # For each line in the shapefile
     for line in streams.geometry:
         # Get the ordered cell IDs for the line
-        cell_ids = get_ordered_cells(line, original_dem.transform,
-                                     original_dem.shape, resol / 2)
+        cell_ids = _get_ordered_cells(line, original_dem.transform,
+                                      original_dem.shape, resol / 2)
 
         # Check DEM values for each cell
         for idx in range(len(cell_ids) - 1):
@@ -175,21 +219,35 @@ def recondition_dem(original_dem, streams):
                 delta_z = slope.min() * distances[row_next, col_next]
 
                 # Lower the next cell
-                new_dem[i_next, j_next] = tile_dem[1, 1] + delta_z - DELTA
+                new_dem[i_next, j_next] = tile_dem[1, 1] + delta_z - delta
 
             # if the next cell is higher than the current one, lower it
             if new_dem[i_next, j_next] >= tile_dem[1, 1]:
-                new_dem[i_next, j_next] = tile_dem[1, 1] - DELTA
+                new_dem[i_next, j_next] = tile_dem[1, 1] - delta
 
     return new_dem
 
 
-def get_ordered_cells(line, transform, shape, resolution):
+def _get_ordered_cells(line, transform, shape, resolution):
+    """
+    Get the ordered cell IDs for a line.
+
+    Parameters
+    ----------
+    line: LineString
+        The line.
+    transform: Affine
+        The affine transformation of the raster.
+    shape: tuple
+        The shape of the raster.
+    resolution: float
+        The resolution of the raster.
+    """
     # Initialize a list to store the cell IDs
     cell_ids = []
 
     # Interpolate points along the line
-    points = interpolate_points(line, resolution)
+    points = _interpolate_points(line, resolution)
 
     # For each point in the line
     last_cell = None
@@ -216,7 +274,17 @@ def get_ordered_cells(line, transform, shape, resolution):
     return cell_ids
 
 
-def interpolate_points(line, distance):
+def _interpolate_points(line, distance):
+    """
+    Interpolate points along a line.
+
+    Parameters
+    ----------
+    line: LineString
+        The line.
+    distance: float
+        The distance between interpolated points.
+    """
     # Initialize the current distance along the line
     current_distance = 0
 
@@ -237,12 +305,22 @@ def interpolate_points(line, distance):
     return coords
 
 
-def extract_stream_starts_ends(streams):
+def extract_stream_starts_ends(streams, output_dir):
+    """
+    Extract the start and end points of the streams.
+
+    Parameters
+    ----------
+    streams: GeoDataFrame
+        The streams GeoDataFrame.
+    output_dir: str
+        The output directory.
+    """
     print('Finding stream starts/ends...')
 
     # Stream start/end points as shapefile
-    stream_starts_shp = Path(OUTPUT_DIR) / 'stream_starts.shp'
-    stream_ends_shp = Path(OUTPUT_DIR) / 'stream_ends.shp'
+    stream_starts_shp = Path(output_dir) / 'stream_starts.shp'
+    stream_ends_shp = Path(output_dir) / 'stream_ends.shp'
 
     # Create a spatial index
     sindex = streams.sindex
@@ -285,7 +363,3 @@ def extract_stream_starts_ends(streams):
     unconnected_end_gdf.to_file(str(stream_ends_shp))
 
     return unconnected_start_gdf, unconnected_end_gdf
-
-
-if __name__ == '__main__':
-    main()
