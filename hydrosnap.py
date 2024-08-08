@@ -129,7 +129,8 @@ def prepare_streams(streams_path, original_dem):
         rank = 1
         start_point = row.geometry
         streams_near = list(streams.sindex.nearest(start_point))
-        streams_idx = [i for i in streams_near[1] if start_point.touches(streams.geometry[i])]
+        streams_idx = [i for i in streams_near[1] if
+                       start_point.touches(streams.geometry[i])]
         streams_connected = streams.loc[streams_idx]
 
         iterate_stream_rank(streams, streams_connected, rank)
@@ -150,7 +151,8 @@ def iterate_stream_rank(streams, streams_touching, rank):
         start_point = Point(stream.geometry.coords[0])
 
         streams_near = list(streams.sindex.nearest(start_point))
-        streams_idx = [i for i in streams_near[1] if start_point.touches(streams.geometry[i])]
+        streams_idx = [i for i in streams_near[1] if
+                       start_point.touches(streams.geometry[i])]
         streams_connected = streams.loc[streams_idx]
 
         # Remove those that have already been ranked
@@ -176,7 +178,8 @@ def recondition_dem(original_dem, streams):
     # For each line in the shapefile
     for line in streams.geometry:
         # Get the ordered cell IDs for the line
-        cell_ids = get_ordered_cells(line, original_dem.transform, original_dem.shape, resol / 2)
+        cell_ids = get_ordered_cells(line, original_dem.transform,
+                                     original_dem.shape, resol / 2)
 
         # Check DEM values for each cell
         for idx in range(len(cell_ids) - 1):
@@ -190,7 +193,8 @@ def recondition_dem(original_dem, streams):
             # Compute the slope from the central cell
             slope = (tile_dem - tile_dem[1, 1]) / distances
 
-            # If the slope is not the steepest in the direction of the next cell, lower the next cell
+            # If the slope is not the steepest in the direction of the next cell,
+            # lower the next cell
             if slope[row_next, col_next] > slope.min():
                 # Calculate the elevation required to make the slope the steepest
                 delta_z = slope.min() * distances[row_next, col_next]
