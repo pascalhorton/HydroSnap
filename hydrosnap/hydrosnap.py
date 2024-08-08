@@ -14,7 +14,6 @@ STREAMS_PATH = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\D
 OUTPUT_DIR = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\Data\Analyses\Data preprocessing'
 OUTLET_PATH = R'C:\Users\Pascal Horton\Documents\Data\Projects\2024 Broye mHM\Data\GIS\Catchment\Outlet.shp'
 DELTA = 0.01  # Elevation difference to lower the next pixel when correcting
-USE_SECOND_PASS = False  # False is recommended. Otherwise, some flats can be created
 
 
 def main():
@@ -52,38 +51,14 @@ def main():
     flooded_dem = pysheds_grid.fill_depressions(pit_filled_dem)
     inflated_dem = pysheds_grid.resolve_flats(flooded_dem)
 
-    if USE_SECOND_PASS:
-        # Save the corrected DEM
-        output_dem_path = Path(OUTPUT_DIR) / 'corrected_dem_post_pysheds.tif'
-        with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
-            dst.write(inflated_dem, 1)
+    # Save the final DEM
+    output_dem_path = Path(OUTPUT_DIR) / 'corrected_dem_final.tif'
+    with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
+        dst.write(inflated_dem, 1)
 
-        # Make a second pass to be sure the streams are correctly represented
-        modified_dem = rasterio.open(output_dem_path)
-        new_dem = recondition_dem(modified_dem, streams)
-
-        # Save the final DEM
-        output_dem_path = Path(OUTPUT_DIR) / 'corrected_dem_final.tif'
-        with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
-            dst.write(new_dem, 1)
-
-        # Compute flow accumulation
-        pysheds_grid = Grid.from_raster(str(output_dem_path))
-        pysheds_dem = pysheds_grid.read_raster(str(output_dem_path))
-        fdir = pysheds_grid.flowdir(pysheds_dem)
-        acc = pysheds_grid.accumulation(fdir)
-
-        modified_dem.close()
-
-    else:
-        # Save the final DEM
-        output_dem_path = Path(OUTPUT_DIR) / 'corrected_dem_final.tif'
-        with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
-            dst.write(inflated_dem, 1)
-
-        # Compute flow accumulation
-        fdir = pysheds_grid.flowdir(inflated_dem)
-        acc = pysheds_grid.accumulation(fdir)
+    # Compute flow accumulation
+    fdir = pysheds_grid.flowdir(inflated_dem)
+    acc = pysheds_grid.accumulation(fdir)
 
     if OUTLET_PATH:
         # Load the outlet
