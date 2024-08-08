@@ -69,8 +69,8 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
         dst.write(inflated_dem, 1)
 
     # Compute flow accumulation
-    fdir = pysheds_grid.flowdir(inflated_dem)
-    acc = pysheds_grid.accumulation(fdir)
+    fdir = pysheds_grid.flowdir(inflated_dem, nodata_out=np.int64(0))
+    acc = pysheds_grid.accumulation(fdir, nodata_out=np.float64(-9999))
 
     if outlet_path:
         # Load the outlet
@@ -364,7 +364,9 @@ def extract_stream_starts_ends(streams, output_dir, save_to_shapefile=True):
 
     # Save the new GeoDataFrame as a point layer shapefile
     if save_to_shapefile:
-        unconnected_start_gdf.to_file(str(stream_starts_shp), crs=streams.crs)
-        unconnected_end_gdf.to_file(str(stream_ends_shp), crs=streams.crs)
+        unconnected_start_gdf.to_file(
+            str(stream_starts_shp), crs=streams.crs, engine='fiona')
+        unconnected_end_gdf.to_file(
+            str(stream_ends_shp), crs=streams.crs, engine='fiona')
 
     return unconnected_start_gdf, unconnected_end_gdf
