@@ -12,8 +12,7 @@ setup(
     long_description=readme,
     long_description_content_type="text/markdown",
     packages=['hydro_snap'],
-    package_dir={'hydro_snap': 'hydro_snap',
-                 },
+    package_dir={'hydro_snap': 'hydro_snap'},
     zip_safe=False,
     python_requires=">=3.8",
     classifiers=[
