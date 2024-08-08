@@ -1,4 +1,3 @@
-import os
 import math
 import rasterio
 from rasterio.transform import rowcol
@@ -19,7 +18,7 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
         The path to the DEM raster file.
     streams_path: str
         The path to the streams shapefile.
-    output_dir: str
+    output_dir: str|Path
         The output directory.
     outlet_path: str
         The path to the outlet shapefile.
@@ -27,10 +26,13 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
         The elevation difference to lower the next pixel when correcting.
     """
 
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+
     # Check if the directory exists
-    if not os.path.exists(output_dir):
+    if not output_dir.exists():
         # If not, create it
-        os.makedirs(output_dir)
+        output_dir.mkdir(parents=True)
 
     # Load the DEM
     original_dem = rasterio.open(dem_path)
@@ -39,22 +41,22 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
     streams = _prepare_streams(streams_path, output_dir)
 
     # Save the streams
-    streams.to_file(Path(output_dir) / 'streams.shp')
+    streams.to_file(output_dir / 'streams.shp')
 
     # Loop over every stream start and follow the stream to correct the DEM
     new_dem = _recondition_dem(original_dem, streams, delta)
 
     # Save the corrected DEM
-    output_dem_path = Path(output_dir) / 'corrected_dem_pre_pysheds.tif'
+    output_dem_path = output_dir / 'corrected_dem_pre_pysheds.tif'
     with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
         dst.write(new_dem, 1)
 
     # Save the height difference raster
-    output_diff_path = Path(output_dir) / 'height_diff.tif'
+    output_diff_path = output_dir / 'height_diff.tif'
     with rasterio.open(output_diff_path, 'w', **original_dem.profile) as dst:
         dst.write(new_dem - original_dem.read(1), 1)
 
-    # Do a first pass to correct the DEM
+    # Correct the DEM
     pysheds_grid = Grid.from_raster(str(output_dem_path))
     pysheds_dem = pysheds_grid.read_raster(str(output_dem_path))
     pit_filled_dem = pysheds_grid.fill_pits(pysheds_dem)
@@ -62,7 +64,7 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
     inflated_dem = pysheds_grid.resolve_flats(flooded_dem)
 
     # Save the final DEM
-    output_dem_path = Path(output_dir) / 'corrected_dem_final.tif'
+    output_dem_path = output_dir / 'corrected_dem_final.tif'
     with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
         dst.write(inflated_dem, 1)
 
@@ -82,17 +84,17 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
         catchment = pysheds_grid.catchment(x=x_snap, y=y_snap, fdir=fdir)
 
         # Save the catchment
-        output_catchment_path = Path(output_dir) / 'catchment.tif'
+        output_catchment_path = output_dir / 'catchment.tif'
         with rasterio.open(output_catchment_path, 'w', **original_dem.profile) as dst:
             dst.write(catchment, 1)
 
     # Save the flow direction
-    output_fdir_path = Path(output_dir) / 'flow_direction.tif'
+    output_fdir_path = output_dir / 'flow_direction.tif'
     with rasterio.open(output_fdir_path, 'w', **original_dem.profile) as dst:
         dst.write(fdir, 1)
 
     # Save the flow accumulation
-    output_acc_path = Path(output_dir) / 'flow_accumulation.tif'
+    output_acc_path = output_dir / 'flow_accumulation.tif'
     with rasterio.open(output_acc_path, 'w', **original_dem.profile) as dst:
         dst.write(acc, 1)
 
@@ -109,7 +111,7 @@ def _prepare_streams(streams_path, output_dir):
     ----------
     streams_path: str
         The path to the streams shapefile.
-    output_dir: str
+    output_dir: Path
         The output directory.
     """
     print('Preparing streams...')
@@ -313,14 +315,14 @@ def extract_stream_starts_ends(streams, output_dir):
     ----------
     streams: GeoDataFrame
         The streams GeoDataFrame.
-    output_dir: str
+    output_dir: Path
         The output directory.
     """
     print('Finding stream starts/ends...')
 
     # Stream start/end points as shapefile
-    stream_starts_shp = Path(output_dir) / 'stream_starts.shp'
-    stream_ends_shp = Path(output_dir) / 'stream_ends.shp'
+    stream_starts_shp = output_dir / 'stream_starts.shp'
+    stream_ends_shp = output_dir / 'stream_ends.shp'
 
     # Create a spatial index
     sindex = streams.sindex
