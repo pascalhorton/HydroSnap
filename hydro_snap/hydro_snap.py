@@ -59,7 +59,7 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
     if catchment_shp:
         if not breaches_shp:
             raise ValueError('A shapefile of breaches must be provided to allow water exiting the catchment.')
-        new_dem = _build_walls_at_catchment_borders(new_dem, catchment_shp, breaches_shp, original_dem)
+        new_dem = _build_walls_at_catchment_borders(new_dem, catchment_shp, breaches_shp, streams_shp, original_dem)
     else:
         if breaches_shp:
             raise Warning('A shapefile of breaches was provided but no catchment shapefile was provided.')
@@ -248,7 +248,8 @@ def _recondition_dem(original_dem, streams, delta):
     return new_dem
 
 
-def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, original_dem, elevation_increase=1000):
+def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, streams_shp, original_dem,
+                                      elevation_increase=1000):
     """
     Build walls at the catchment borders to constrain the water to stay within the catchment boundaries.
 
@@ -260,6 +261,8 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, original
         The path to the catchment shapefile (polygon).
     breaches_shp: str
         The path to the breaches shapefile (lines) that will be used to remove the walls (e.g. outlet).
+    streams_shp: str
+        The path to the streams shapefile.
     original_dem: rasterio.DatasetReader
         The original DEM raster.
     elevation_increase: float
@@ -278,6 +281,39 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, original
         all_touched=True,
         invert=True,
         out_shape=dem.shape)
+
+    # Rasterize the catchment area
+    catchment_rasterized = rasterio.features.geometry_mask(
+        [mapping(geom) for geom in catchment.geometry],
+        transform=original_dem.transform,
+        all_touched=False,
+        invert=True,
+        out_shape=dem.shape)
+
+    # Load the river network shapefile
+    rivers = gpd.read_file(streams_shp)
+
+    # Rasterize the river network
+    rivers_rasterized = rasterio.features.geometry_mask(
+        [mapping(geom) for geom in rivers.geometry],
+        transform=original_dem.transform,
+        all_touched=True,  # Consider all touched pixels part of the river
+        invert=True,
+        out_shape=dem.shape)
+
+    # Identify overlapping pixels (where both river and boundary exist)
+    overlap_mask = boundary_rasterized & rivers_rasterized
+
+    # Extract indices of the overlapping pixels
+    overlap_indices = np.argwhere(overlap_mask)
+
+    # Loop over the overlapping pixels
+    for i, j in overlap_indices:
+        # Set to True the surrounding pixels (3x3) that are not part of the catchment or the river
+        boundary_rasterized[i - 1:i + 2, j - 1:j + 2] = np.where(
+            (catchment_rasterized[i - 1:i + 2, j - 1:j + 2] == 0) &
+            (rivers_rasterized[i - 1:i + 2, j - 1:j + 2] == 0),
+            True, False)
 
     # Load the breaches shapefile
     breaches = gpd.read_file(breaches_shp)
