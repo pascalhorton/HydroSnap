@@ -1,6 +1,6 @@
 fiona
 geopandas
-numpy
+numpy==1.*
 pysheds
 rasterio
 shapely
