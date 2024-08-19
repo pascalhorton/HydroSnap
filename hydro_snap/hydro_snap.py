@@ -10,7 +10,8 @@ import numpy as np
 from pathlib import Path
 
 
-def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=None, catchment_shp=None):
+def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=None, catchment_shp=None,
+                    breaches_shp=None):
     """
     Recondition the DEM based on the stream network.
 
@@ -29,6 +30,9 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
     catchment_shp: str, optional
         The path to the catchment shapefile. If provided, the flow direction will be constrained to match the provided
         catchment delineation.
+    breaches_shp: str, optional
+        The path to the breaches shapefile. It must be provided if a catchment shapefile is provided to allow water
+        exiting the catchment.
     """
 
     if isinstance(output_dir, str):
@@ -53,9 +57,12 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
 
     # If a catchment is provided, constrain the water to stay within the catchment boundaries
     if catchment_shp:
-        if not outlet_shp:
-            raise ValueError('An outlet shapefile must be provided to constrain the flow direction to the catchment.')
-        new_dem = _build_walls_at_catchment_borders(new_dem, catchment_shp, outlet_shp, original_dem)
+        if not breaches_shp:
+            raise ValueError('A shapefile of breaches must be provided to allow water exiting the catchment.')
+        new_dem = _build_walls_at_catchment_borders(new_dem, catchment_shp, breaches_shp, original_dem)
+    else:
+        if breaches_shp:
+            raise Warning('A shapefile of breaches was provided but no catchment shapefile was provided.')
 
     # Save the corrected DEM
     output_dem_path = output_dir / 'corrected_dem_pre_pysheds.tif'
@@ -241,7 +248,7 @@ def _recondition_dem(original_dem, streams, delta):
     return new_dem
 
 
-def _build_walls_at_catchment_borders(dem, catchment_shp, outlet_shp, original_dem, elevation_increase=1000):
+def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, original_dem, elevation_increase=1000):
     """
     Build walls at the catchment borders to constrain the water to stay within the catchment boundaries.
 
@@ -251,8 +258,8 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, outlet_shp, original_d
         The DEM array.
     catchment_shp: str
         The path to the catchment shapefile (polygon).
-    outlet_shp: str
-        The path to the outlet shapefile (point).
+    breaches_shp: str
+        The path to the breaches shapefile (lines) that will be used to remove the walls (e.g. outlet).
     original_dem: rasterio.DatasetReader
         The original DEM raster.
     elevation_increase: float
@@ -268,20 +275,21 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, outlet_shp, original_d
     boundary_rasterized = rasterio.features.geometry_mask(
         [mapping(geom) for geom in catchment_boundary],
         transform=original_dem.transform,
+        all_touched=True,
         invert=True,
         out_shape=dem.shape)
 
-    # Load the outlet shapefile
-    outlet = gpd.read_file(outlet_shp)
-    (x, y) = (outlet.geometry.x[0], outlet.geometry.y[0])
+    # Load the breaches shapefile
+    breaches = gpd.read_file(breaches_shp)
 
-    # Remove the outlet from the boundary (we want the water to flow out)
-    outlet_rasterized = rasterio.features.geometry_mask(
-        [mapping(outlet.geometry[0])],
+    # Remove the breaches from the boundary (we want the water to flow out)
+    breaches_rasterized = rasterio.features.geometry_mask(
+        [mapping(geom) for geom in breaches.geometry],
         transform=original_dem.transform,
+        all_touched=True,
         invert=True,
         out_shape=dem.shape)
-    boundary_rasterized[outlet_rasterized] = False
+    boundary_rasterized[breaches_rasterized] = False
 
     # Raise elevation along the boundary
     dem[boundary_rasterized] += elevation_increase
