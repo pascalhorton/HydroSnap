@@ -1,29 +1,34 @@
 import math
 import rasterio
+import rasterio.features
 from rasterio.transform import rowcol
 from shapely.geometry import Point
+from shapely.geometry import mapping
 from pysheds.grid import Grid
 import geopandas as gpd
 import numpy as np
 from pathlib import Path
 
 
-def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=0.01):
+def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=None, catchment_shp=None):
     """
     Recondition the DEM based on the stream network.
 
     Parameters
     ----------
-    dem_path: str
+    dem_raster: str
         The path to the DEM raster file.
-    streams_path: str
+    streams_shp: str
         The path to the streams shapefile.
     output_dir: str|Path
         The output directory.
-    outlet_path: str
-        The path to the outlet shapefile.
-    delta: float
-        The elevation difference to lower the next pixel when correcting.
+    delta: float, optional
+        The elevation difference to lower the next pixel when correcting. Default is 0.01.
+    outlet_shp: str, optional
+        The path to the outlet shapefile. If provided, the catchment delineation will be computed.
+    catchment_shp: str, optional
+        The path to the catchment shapefile. If provided, the flow direction will be constrained to match the provided
+        catchment delineation.
     """
 
     if isinstance(output_dir, str):
@@ -35,16 +40,22 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
         output_dir.mkdir(parents=True)
 
     # Load the DEM
-    original_dem = rasterio.open(dem_path)
+    original_dem = rasterio.open(dem_raster)
 
     # Load the streams
-    streams = _prepare_streams(streams_path, output_dir)
+    streams = _prepare_streams(streams_shp, output_dir)
 
-    # Save the streams
+    # Save the preprocessed streams
     streams.to_file(output_dir / 'streams.shp')
 
     # Loop over every stream start and follow the stream to correct the DEM
     new_dem = _recondition_dem(original_dem, streams, delta)
+
+    # If a catchment is provided, constrain the water to stay within the catchment boundaries
+    if catchment_shp:
+        if not outlet_shp:
+            raise ValueError('An outlet shapefile must be provided to constrain the flow direction to the catchment.')
+        new_dem = _build_walls_at_catchment_borders(new_dem, catchment_shp, outlet_shp, original_dem)
 
     # Save the corrected DEM
     output_dem_path = output_dir / 'corrected_dem_pre_pysheds.tif'
@@ -56,7 +67,7 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
     with rasterio.open(output_diff_path, 'w', **original_dem.profile) as dst:
         dst.write(new_dem - original_dem.read(1), 1)
 
-    # Correct the DEM
+    # Correct the DEM using Pysheds
     pysheds_grid = Grid.from_raster(str(output_dem_path))
     pysheds_dem = pysheds_grid.read_raster(str(output_dem_path))
     pit_filled_dem = pysheds_grid.fill_pits(pysheds_dem)
@@ -72,9 +83,9 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
     fdir = pysheds_grid.flowdir(inflated_dem, nodata_out=np.int64(0))
     acc = pysheds_grid.accumulation(fdir, nodata_out=np.float64(-9999))
 
-    if outlet_path:
+    if outlet_shp:
         # Load the outlet
-        outlet = gpd.read_file(outlet_path)
+        outlet = gpd.read_file(outlet_shp)
         (x, y) = (outlet.geometry.x[0], outlet.geometry.y[0])
 
         # Snap the outlet to the nearest cell with a high flow accumulation
@@ -103,20 +114,20 @@ def recondition_dem(dem_path, streams_path, output_dir, outlet_path=None, delta=
     print(f'Corrected DEM saved to {output_dem_path}')
 
 
-def _prepare_streams(streams_path, output_dir):
+def _prepare_streams(streams_shp, output_dir):
     """
     Prepare the streams by adding a rank to each stream.
 
     Parameters
     ----------
-    streams_path: str
+    streams_shp: str
         The path to the streams shapefile.
     output_dir: Path
         The output directory.
     """
     print('Preparing streams...')
 
-    streams = gpd.read_file(streams_path)
+    streams = gpd.read_file(streams_shp)
 
     _, stream_ends = extract_stream_starts_ends(streams, output_dir)
 
@@ -230,6 +241,54 @@ def _recondition_dem(original_dem, streams, delta):
     return new_dem
 
 
+def _build_walls_at_catchment_borders(dem, catchment_shp, outlet_shp, original_dem, elevation_increase=1000):
+    """
+    Build walls at the catchment borders to constrain the water to stay within the catchment boundaries.
+
+    Parameters
+    ----------
+    dem: ndarray
+        The DEM array.
+    catchment_shp: str
+        The path to the catchment shapefile (polygon).
+    outlet_shp: str
+        The path to the outlet shapefile (point).
+    original_dem: rasterio.DatasetReader
+        The original DEM raster.
+    elevation_increase: float
+        The elevation increase at the catchment borders. Default is 1000.
+    """
+    print('Building walls at catchment borders...')
+
+    # Load the catchment shapefile
+    catchment = gpd.read_file(catchment_shp)
+
+    # Rasterize the catchment boundary
+    catchment_boundary = catchment.geometry.boundary
+    boundary_rasterized = rasterio.features.geometry_mask(
+        [mapping(geom) for geom in catchment_boundary],
+        transform=original_dem.transform,
+        invert=True,
+        out_shape=dem.shape)
+
+    # Load the outlet shapefile
+    outlet = gpd.read_file(outlet_shp)
+    (x, y) = (outlet.geometry.x[0], outlet.geometry.y[0])
+
+    # Remove the outlet from the boundary (we want the water to flow out)
+    outlet_rasterized = rasterio.features.geometry_mask(
+        [mapping(outlet.geometry[0])],
+        transform=original_dem.transform,
+        invert=True,
+        out_shape=dem.shape)
+    boundary_rasterized[outlet_rasterized] = False
+
+    # Raise elevation along the boundary
+    dem[boundary_rasterized] += elevation_increase
+
+    return dem
+
+
 def _get_ordered_cells(line, transform, shape, resolution):
     """
     Get the ordered cell IDs for a line.
@@ -309,7 +368,7 @@ def _interpolate_points(line, distance):
 
 def extract_stream_starts_ends(streams, output_dir, save_to_shapefile=True):
     """
-    Extract the start and end points of the streams.
+    Extract the start and end points of the streams, i.e. the points that are not connected to any other stream.
 
     Parameters
     ----------
