@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=None, catchment_shp=None,
-                    breaches_shp=None):
+                    breaches_shp=None, walls_height=1000):
     """
     Recondition the DEM based on the stream network.
 
@@ -33,6 +33,8 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
     breaches_shp: str, optional
         The path to the breaches shapefile. It must be provided if a catchment shapefile is provided to allow water
         exiting the catchment.
+    walls_height: float, optional
+        The height of the walls built at the catchment borders. Default is 1000.
     """
 
     if isinstance(output_dir, str):
@@ -56,10 +58,12 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
     new_dem = _recondition_dem(original_dem, streams, delta)
 
     # If a catchment is provided, constrain the water to stay within the catchment boundaries
+    boundaries = None
     if catchment_shp:
         if not breaches_shp:
             raise ValueError('A shapefile of breaches must be provided to allow water exiting the catchment.')
-        new_dem = _build_walls_at_catchment_borders(new_dem, catchment_shp, breaches_shp, streams_shp, original_dem)
+        new_dem, boundaries = _build_walls_at_catchment_borders(new_dem, catchment_shp, breaches_shp, streams_shp,
+                                                                original_dem, elevation_increase=walls_height)
     else:
         if breaches_shp:
             raise Warning('A shapefile of breaches was provided but no catchment shapefile was provided.')
@@ -69,11 +73,6 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
     with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
         dst.write(new_dem, 1)
 
-    # Save the height difference raster
-    output_diff_path = output_dir / 'height_diff.tif'
-    with rasterio.open(output_diff_path, 'w', **original_dem.profile) as dst:
-        dst.write(new_dem - original_dem.read(1), 1)
-
     # Correct the DEM using Pysheds
     pysheds_grid = Grid.from_raster(str(output_dem_path))
     pysheds_dem = pysheds_grid.read_raster(str(output_dem_path))
@@ -81,14 +80,18 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=
     flooded_dem = pysheds_grid.fill_depressions(pit_filled_dem)
     inflated_dem = pysheds_grid.resolve_flats(flooded_dem)
 
+    # Compute flow accumulation
+    fdir = pysheds_grid.flowdir(inflated_dem, nodata_out=np.int64(0))
+    acc = pysheds_grid.accumulation(fdir, nodata_out=np.float64(-9999))
+
+    # Remove the walls
+    if catchment_shp:
+        inflated_dem[boundaries] -= walls_height
+
     # Save the final DEM
     output_dem_path = output_dir / 'corrected_dem_final.tif'
     with rasterio.open(output_dem_path, 'w', **original_dem.profile) as dst:
         dst.write(inflated_dem, 1)
-
-    # Compute flow accumulation
-    fdir = pysheds_grid.flowdir(inflated_dem, nodata_out=np.int64(0))
-    acc = pysheds_grid.accumulation(fdir, nodata_out=np.float64(-9999))
 
     if outlet_shp:
         # Load the outlet
@@ -275,7 +278,7 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, streams_
 
     # Rasterize the catchment boundary
     catchment_boundary = catchment.geometry.boundary
-    boundary_rasterized = rasterio.features.geometry_mask(
+    boundaries = rasterio.features.geometry_mask(
         [mapping(geom) for geom in catchment_boundary],
         transform=original_dem.transform,
         all_touched=True,
@@ -286,7 +289,6 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, streams_
     catchment_rasterized = rasterio.features.geometry_mask(
         [mapping(geom) for geom in catchment.geometry],
         transform=original_dem.transform,
-        all_touched=False,
         invert=True,
         out_shape=dem.shape)
 
@@ -297,23 +299,25 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, streams_
     rivers_rasterized = rasterio.features.geometry_mask(
         [mapping(geom) for geom in rivers.geometry],
         transform=original_dem.transform,
-        all_touched=True,  # Consider all touched pixels part of the river
+        all_touched=True,
         invert=True,
         out_shape=dem.shape)
 
     # Identify overlapping pixels (where both river and boundary exist)
-    overlap_mask = boundary_rasterized & rivers_rasterized
+    overlap_mask = boundaries & rivers_rasterized
 
     # Extract indices of the overlapping pixels
     overlap_indices = np.argwhere(overlap_mask)
 
-    # Loop over the overlapping pixels
-    for i, j in overlap_indices:
-        # Set to True the surrounding pixels (3x3) that are not part of the catchment or the river
-        boundary_rasterized[i - 1:i + 2, j - 1:j + 2] = np.where(
-            (catchment_rasterized[i - 1:i + 2, j - 1:j + 2] == 0) &
-            (rivers_rasterized[i - 1:i + 2, j - 1:j + 2] == 0),
-            True, False)
+    # Set to True the surrounding pixels (3x3) that are not part of the catchment or the river
+    for i_o, j_o in overlap_indices:
+        for i in range(i_o - 1, i_o + 2):
+            for j in range(j_o - 1, j_o + 2):
+                if rivers_rasterized[i, j]:
+                    boundaries[i, j] = False
+                    continue
+                if not catchment_rasterized[i, j] and not boundaries[i, j]:
+                    boundaries[i, j] = True
 
     # Load the breaches shapefile
     breaches = gpd.read_file(breaches_shp)
@@ -325,12 +329,12 @@ def _build_walls_at_catchment_borders(dem, catchment_shp, breaches_shp, streams_
         all_touched=True,
         invert=True,
         out_shape=dem.shape)
-    boundary_rasterized[breaches_rasterized] = False
+    boundaries[breaches_rasterized] = False
 
     # Raise elevation along the boundary
-    dem[boundary_rasterized] += elevation_increase
+    dem[boundaries] += elevation_increase
 
-    return dem
+    return dem, boundaries
 
 
 def _get_ordered_cells(line, transform, shape, resolution):
