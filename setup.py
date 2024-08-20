@@ -4,7 +4,7 @@ with open('README.md') as f:
     readme = f.read()
 
 setup(
-    name="HydroSnap",
+    name="hydro-snap",
     version="0.0.1",
     author="Pascal Horton",
     author_email="pascal.horton@unibe.ch",
