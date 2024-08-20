@@ -22,8 +22,8 @@ setup(
     ],
     readme="README.md",
     project_urls={
-        "Source Code": "https://github.com/pascalhorton/HydroSnap",
-        "Bug Tracker": "https://github.com/pascalhorton/HydroSnap/issues",
+        "Source Code": "https://github.com/pascalhorton/hydro-snap",
+        "Bug Tracker": "https://github.com/pascalhorton/hydro-snap/issues",
     },
     license="MIT",
 )
