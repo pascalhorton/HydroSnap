@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setup(
     name="hydro-snap",
-    version="0.0.1",
+    version="0.1.1",
     author="Pascal Horton",
     author_email="pascal.horton@unibe.ch",
     description="DEM reconditioning for hydrological applications",
