@@ -1,4 +1,8 @@
 # hydro-snap
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.13350525.svg)](https://doi.org/10.5281/zenodo.13350525)
+
+
 Hydro-snap is an efficient tool for seamlessly aligning digital elevation models (DEMs) 
 with mapped stream networks, ensuring accurate hydrological flow paths with minimal 
 terrain alteration.
