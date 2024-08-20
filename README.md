@@ -5,7 +5,7 @@ terrain alteration.
 
 ![comparison](https://github.com/user-attachments/assets/f8c3a3c3-2aa4-45f2-b9b5-d322370118dc)
 
-Example of a flow accumulation before (left) and after (right) alignment with HydroSnap. 
+Example of a flow accumulation before (left) and after (right) alignment with hydro-snap. 
 The DEM on the right has been aligned with the mapped stream network, ensuring accurate 
 hydrological flow paths.
 
