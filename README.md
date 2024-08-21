@@ -21,6 +21,16 @@ Hydro-snap allows users to:
 The flow direction and accumulation are computed after the DEM has been aligned 
 with the stream network, using the [pysheds](https://github.com/mdbartos/pysheds) library.
 
+The outputs of hydro-snap are:
+- A reconditioned DEM (corrected_dem_final.tif)
+- A flow direction raster (flow_direction.tif)
+- A flow accumulation raster (flow_accumulation.tif)
+- A catchment delineation raster (catchment.tif)
+- The stream network shapefile with an additional incremental rank attribute (streams.shp)
+- The stream start points shapefile (stream_starts.shp)
+- The stream end points shapefile (stream_ends.shp)
+
+
 ## Installation
 Hydro-snap can be installed using pip:
 ```bash
