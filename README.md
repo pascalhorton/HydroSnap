@@ -27,8 +27,8 @@ The outputs of hydro-snap are:
 - A flow accumulation raster (flow_accumulation.tif)
 - A catchment delineation raster (catchment.tif)
 - The stream network shapefile with an additional incremental rank attribute (streams.shp)
-- The stream start points shapefile (stream_starts.shp)
-- The stream end points shapefile (stream_ends.shp)
+- The stream start points shapefile (stream_starts.shp). Can be used to identify issues with the stream network data.
+- The stream end points shapefile (stream_ends.shp). Can be used to identify issues with the stream network data.
 
 
 ## Installation
