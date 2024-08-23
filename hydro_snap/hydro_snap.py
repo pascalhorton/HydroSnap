@@ -219,6 +219,12 @@ def _recondition_dem(original_dem, streams, delta):
 
     # For each line in the shapefile
     for line in streams.geometry:
+        # Skip invalid lines
+        if not line:
+            continue
+        if not line.is_valid:
+            continue
+
         # Get the ordered cell IDs for the line
         cell_ids = _get_ordered_cells(line, original_dem.transform,
                                       original_dem.shape, resol / 2)
@@ -442,6 +448,12 @@ def extract_stream_starts_ends(streams, output_dir, save_to_shapefile=True):
 
     # Iterate over the geometry of each line
     for line in streams.geometry:
+        # Skip invalid lines
+        if not line:
+            continue
+        if not line.is_valid:
+            continue
+
         # Get the start and end points
         start_point = Point(line.coords[0])
         end_point = Point(line.coords[-1])

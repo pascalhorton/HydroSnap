@@ -40,7 +40,8 @@ pip install hydro-snap
 ## Data requirements
 You will need the following data to use hydro-snap:
 - A digital elevation model (DEM) in GeoTIFF format (with a spatial reference system)
-- A mapped stream network in shapefile format (with a spatial reference system)
+- A mapped stream network in shapefile format (with a spatial reference system). The lines in the shapefile must be 
+- oriented in the direction of flow (from upstream to downstream)! The lines can be reversed in GIS software if needed.
 - (Optional) A shapefile containing the outlet point of the catchment
 - (Optional) A shapefile containing the catchment boundary
 - (Optional) A shapefile containing the breaches in catchment boundary
