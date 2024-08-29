@@ -235,6 +235,9 @@ def _recondition_dem(original_dem, streams, delta):
         # Check DEM values for each cell
         for idx in range(len(cell_ids) - 1):
             i, j = cell_ids[idx]
+            if i == 0 or j == 0 or i == new_dem.shape[0] - 1 or j == new_dem.shape[1] - 1:
+                continue
+
             tile_dem = new_dem[i - 1:i + 2, j - 1:j + 2]
 
             # Get the indices of the next pixel in the 3x3 tile
