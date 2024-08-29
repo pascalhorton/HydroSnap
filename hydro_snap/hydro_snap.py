@@ -10,8 +10,9 @@ import numpy as np
 from pathlib import Path
 
 
-def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.01, outlet_shp=None, catchment_shp=None,
-                    breaches_shp=None, walls_height=1000):
+def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.0001, outlet_shp=None,
+                    catchment_shp=None, breaches_shp=None, walls_height=1000,
+                    epsg_code=None):
     """
     Recondition the DEM based on the stream network.
 
