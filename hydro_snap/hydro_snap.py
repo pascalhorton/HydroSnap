@@ -139,6 +139,9 @@ def _prepare_streams(streams_shp, output_dir):
 
     streams = gpd.read_file(streams_shp)
 
+    # Drop all columns except geometry
+    streams = streams[['geometry']]
+
     _, stream_ends = extract_stream_starts_ends(streams, output_dir)
 
     # From the stream ends, go up the stream and increment a rank counter
