@@ -2,6 +2,7 @@ import math
 import rasterio
 import rasterio.features
 from rasterio.transform import rowcol
+from rasterio.crs import CRS
 from shapely.geometry import Point
 from shapely.geometry import mapping
 from pysheds.grid import Grid
@@ -25,7 +26,7 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.0001, outlet_sh
     output_dir: str|Path
         The output directory.
     delta: float, optional
-        The elevation difference to lower the next pixel when correcting. Default is 0.01.
+        The elevation difference to lower the next pixel when correcting. Default is 0.0001.
     outlet_shp: str, optional
         The path to the outlet shapefile. If provided, the catchment delineation will be computed.
     catchment_shp: str, optional
@@ -36,6 +37,8 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.0001, outlet_sh
         exiting the catchment.
     walls_height: float, optional
         The height of the walls built at the catchment borders. Default is 1000.
+    epsg_code: int, optional
+        The EPSG code of the data. Useful if the CRS is not defined in the input files.
     """
 
     if isinstance(output_dir, str):
@@ -47,7 +50,7 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.0001, outlet_sh
         output_dir.mkdir(parents=True)
 
     # Load the DEM
-    original_dem = rasterio.open(dem_raster)
+    original_dem = _open_raster_check_crs(dem_raster, epsg_code)
 
     # Load the streams
     streams = _prepare_streams(streams_shp, output_dir)
@@ -123,6 +126,54 @@ def recondition_dem(dem_raster, streams_shp, output_dir, delta=0.0001, outlet_sh
     original_dem.close()
 
     print(f'Corrected DEM saved to {output_dem_path}')
+
+
+def _open_raster_check_crs(raster_path, epsg_code):
+    """
+    Open a raster file and check if the CRS is defined. If not, define it.
+
+    Parameters
+    ----------
+    raster_path: str
+        The path to the raster file.
+    epsg_code: int
+        The EPSG code of the data. Useful if the CRS is not defined in the input files.
+    """
+    src = rasterio.open(raster_path)
+
+    if not src.crs:
+        if not epsg_code:
+            raise ValueError(f'The CRS of the raster {raster_path} is not defined.')
+        src.crs = CRS.from_epsg(epsg_code)
+    elif epsg_code:
+        if src.crs.to_epsg() != epsg_code:
+            src.crs = CRS.from_epsg(epsg_code)
+
+    return src
+
+
+def _open_vector_check_crs(shapefile_path, epsg_code):
+    """
+    Open a vector file and check if the CRS is defined. If not, define it.
+
+    Parameters
+    ----------
+    shapefile_path: str
+        The path to the shapefile.
+    epsg_code: int
+        The EPSG code of the data. Useful if the CRS is not defined in the input files.
+    """
+    gdf = gpd.read_file(shapefile_path)
+
+    if not gdf.crs:
+        if not epsg_code:
+            raise ValueError(f'The CRS of the shapefile {shapefile_path} is not defined.')
+        gdf.set_crs(epsg=epsg_code, inplace=True)
+    elif epsg_code:
+        if gdf.crs.to_epsg() != epsg_code:
+            gdf.to_crs(epsg=epsg_code, inplace=True)
+
+    return gdf
 
 
 def _prepare_streams(streams_shp, output_dir):

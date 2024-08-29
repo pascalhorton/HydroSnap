@@ -37,6 +37,24 @@ Hydro-snap can be installed using pip:
 pip install hydro-snap
 ```
 
+The proj library is required to handle the spatial reference system of the DEM and stream network.
+If you are using Windows, you can install the proj library using conda:
+```bash
+conda install -c conda-forge proj
+```
+
+If you are using Linux, you can install the proj library using apt:
+```bash
+sudo apt-get install libproj-dev
+```
+
+If you are using macOS, you can install the proj library using brew:
+```bash
+brew install proj
+```
+
+Cannot find proj.db? Set the PROJ_DATA environment variable to the directory containing the proj.db file (see https://proj.org/en/9.4/faq.html#why-am-i-getting-the-error-cannot-find-proj-db).
+
 ## Data requirements
 You will need the following data to use hydro-snap:
 - A digital elevation model (DEM) in GeoTIFF format (with a spatial reference system)
